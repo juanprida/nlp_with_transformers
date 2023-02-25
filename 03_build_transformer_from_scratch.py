@@ -1,14 +1,16 @@
-# Code implementation of the paper "Attention is all you need" for the encoder/decoder architecture.
-# Author: Juan Prida
+"""
+Code implementation of the paper "Attention is all you need" for the encoder/decoder architecture.
+Author: Juan Prida
+"""
+from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
 
-from dataclasses import dataclass
-
 
 @dataclass
-class config:
+class Config:
+    """Configuration class for the transformer model."""
     # Model hyperparameters.
     vocab_size: int = 1000
     embed_dim: int = 768
@@ -26,22 +28,22 @@ class config:
 
 class AttentionHead(nn.Module):
     """Single attention head."""
-
-    def __init__(self, config):
+    def __init__(self, config: Config):
         super().__init__()
+        self.apply_mask = config.apply_mask
         self.query, self.key, self.value = nn.ModuleList(
             [nn.Linear(config.embed_dim, config.embed_dim // config.n_head) for _ in range(3)]
         )
         self.d_k = config.embed_dim
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         q = self.query(x)
         k = self.key(x)
         v = self.value(x)
 
         qk = q @ k.transpose(1, 2) / self.d_k**0.5
         # Masking the attention weights to prevent the model from attending to future tokens.
-        if config.apply_mask:
+        if self.apply_mask:
             mask = torch.tril(torch.ones(qk.shape[-2], qk.shape[-1])).bool()
             qk = qk.masked_fill(mask, float("-inf"))
         qk_scaled = torch.softmax(qk, dim=-1)
@@ -51,13 +53,12 @@ class AttentionHead(nn.Module):
 
 class MultiHeadAttention(nn.Module):
     """Combine multiple attention heads into one attention layer."""
-
-    def __init__(self, config):
+    def __init__(self, config: Config):
         super().__init__()
         self.heads = nn.ModuleList([AttentionHead(config) for _ in range(config.n_head)])
         self.linear = nn.Linear(config.embed_dim, config.embed_dim)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         attn = [head(x) for head in self.heads]
         concat = torch.cat(attn, dim=-1)
         output = self.linear(concat)
@@ -71,15 +72,14 @@ class FeedForward(nn.Module):
     Note that when we apply a linear layer, the transformations will treat
     sequences and samples in an independently manner.
     """
-
-    def __init__(self, config):
+    def __init__(self, config: Config):
         super().__init__()
         self.linear_1 = nn.Linear(config.embed_dim, config.dim_feedforward)
         self.gelu = nn.GELU()
         self.linear_2 = nn.Linear(config.dim_feedforward, config.embed_dim)
         self.dropout = nn.Dropout(config.dropout)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.linear_1(x)
         x = self.gelu(x)
         x = self.linear_2(x)
@@ -89,15 +89,14 @@ class FeedForward(nn.Module):
 
 class Block(nn.Module):
     """Combine attention with fully connected layers adding layer normalization and skipconnections."""
-
-    def __init__(self, config):
+    def __init__(self, config: Config):
         super().__init__()
         self.mhattn = MultiHeadAttention(config)
         self.ff = FeedForward(config)
         self.layer_norm_1 = nn.LayerNorm(config.embed_dim)
         self.layer_norm_2 = nn.LayerNorm(config.embed_dim)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x + self.mhattn(self.layer_norm_1(x))
         x = x + self.ff(self.layer_norm_2(x))
         return x
@@ -106,7 +105,7 @@ class Block(nn.Module):
 class Transformer(nn.Module):
     """Combine multiple blocks to form a transformer encoder."""
 
-    def __init__(self, config):
+    def __init__(self, config: Config):
         super().__init__()
         self.token_embeddings = nn.Embedding(config.vocab_size, config.embed_dim)
         self.positional_embeddings = nn.Embedding(config.max_input_length, config.embed_dim)
@@ -114,7 +113,7 @@ class Transformer(nn.Module):
         self.dropout = nn.Dropout(config.dropout)
         self.blocks = nn.ModuleList([Block(config) for _ in range(config.num_encoder_layers)])
 
-    def forward(self, input_ids):
+    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
         # Compute embeddings.
         token_embedding = self.token_embeddings(input_ids)
         # Compute positional embeddings.
